@@ -1,0 +1,21 @@
+# Small Cluster Configuration (< 50 nodes, < 1000 resources)
+# Usage: helm install k8s-cleaner ./charts/k8s-cleaner -f values-small.yaml
+
+replicaCount: 1
+
+controller:
+  args:
+    concurrent-reconciles: "5"
+    worker-number: "3"
+    kube-api-qps: "20"
+    kube-api-burst: "30"
+    jitter-window: "10"
+    disable-telemetry: "true"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+

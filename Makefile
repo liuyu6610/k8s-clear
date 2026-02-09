@@ -268,7 +268,22 @@ docker-push: ## Push docker image with the manager.
 
 .PHONY: docker-buildx
 docker-buildx: ## docker build for multiple arch and push to docker hub
-	docker buildx build --push --platform linux/amd64,linux/arm64 -t $(CONTROLLER_IMG):$(TAG) .
+	docker buildx build --push --platform linux/amd64,linux/arm64 \
+		--build-arg BUILDOS=linux \
+		--build-arg VERSION=$(TAG) \
+		--build-arg COMMIT=$(shell git rev-parse HEAD) \
+		--build-arg BUILD_TIME=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ") \
+		-t $(CONTROLLER_IMG):$(TAG) .
+
+.PHONY: docker-build-local
+docker-build-local: ## Build docker image locally with version info
+	docker build --load \
+		--build-arg BUILDOS=linux \
+		--build-arg TARGETARCH=amd64 \
+		--build-arg VERSION=$(TAG) \
+		--build-arg COMMIT=$(shell git rev-parse HEAD) \
+		--build-arg BUILD_TIME=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ") \
+		-t $(CONTROLLER_IMG):$(TAG) .
 
 .PHONY: load-image
 load-image: docker-build $(KIND)
@@ -296,3 +311,89 @@ deploy: manifests load-image $(KUSTOMIZE) $(KUBECTL) $(ENVSUBST) ## Deploy contr
 .PHONY: undeploy
 undeploy: $(KUSTOMIZE) ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+
+##@ Helm
+
+.PHONY: helm-install
+helm-install: ## Install k8s-cleaner using Helm
+	helm install k8s-cleaner charts/k8s-cleaner \
+		--namespace projectsveltos \
+		--create-namespace
+
+.PHONY: helm-upgrade
+helm-upgrade: ## Upgrade k8s-cleaner using Helm
+	helm upgrade k8s-cleaner charts/k8s-cleaner \
+		--namespace projectsveltos
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall k8s-cleaner using Helm
+	helm uninstall k8s-cleaner --namespace projectsveltos
+
+.PHONY: helm-package
+helm-package: ## Package Helm chart
+	helm package charts/k8s-cleaner
+
+##@ Monitoring
+
+.PHONY: install-monitoring
+install-monitoring: ## Install Prometheus rules and Grafana dashboard
+	kubectl apply -f monitoring/prometheus-rules.yaml
+	@echo "Grafana dashboard JSON available at monitoring/grafana-dashboard.json"
+	@echo "Import it manually in Grafana or use ConfigMap"
+
+##@ Development
+
+.PHONY: dev-setup
+dev-setup: tools ## Setup development environment
+	@echo "Development environment setup complete!"
+	@echo "Run 'make help' to see all available commands"
+
+.PHONY: check
+check: fmt vet lint govulncheck ## Run all checks (fmt, vet, lint, vulncheck)
+	@echo "All checks passed!"
+
+.PHONY: clean-all
+clean-all: clean ## Clean all generated files and binaries
+	rm -rf bin/
+	rm -rf $(TOOLS_BIN_DIR)/
+	docker rmi $(CONTROLLER_IMG):$(TAG) 2>/dev/null || true
+
+##@ Performance
+
+.PHONY: performance-benchmark
+performance-benchmark: ## Run performance benchmark
+	@chmod +x scripts/performance-benchmark.sh
+	@./scripts/performance-benchmark.sh
+
+.PHONY: performance-tune
+performance-tune: ## Get performance tuning recommendations
+	@chmod +x scripts/performance-tune.sh
+	@./scripts/performance-tune.sh
+
+.PHONY: helm-install-small
+helm-install-small: ## Install with small cluster configuration
+	helm install k8s-cleaner charts/k8s-cleaner \
+		-f charts/k8s-cleaner/values-small.yaml \
+		--namespace projectsveltos \
+		--create-namespace
+
+.PHONY: helm-install-medium
+helm-install-medium: ## Install with medium cluster configuration
+	helm install k8s-cleaner charts/k8s-cleaner \
+		-f charts/k8s-cleaner/values-medium.yaml \
+		--namespace projectsveltos \
+		--create-namespace
+
+.PHONY: helm-install-large
+helm-install-large: ## Install with large cluster configuration
+	helm install k8s-cleaner charts/k8s-cleaner \
+		-f charts/k8s-cleaner/values-large.yaml \
+		--namespace projectsveltos \
+		--create-namespace
+
+.PHONY: helm-install-xlarge
+helm-install-xlarge: ## Install with extra large cluster configuration
+	helm install k8s-cleaner charts/k8s-cleaner \
+		-f charts/k8s-cleaner/values-xlarge.yaml \
+		--namespace projectsveltos \
+		--create-namespace

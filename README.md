@@ -81,6 +81,7 @@ By combining the **flexibility** of **scheduling**, the **accuracy** of **label 
 
 - ✅  [Install](https://gianlucam76.github.io/k8s-cleaner/getting_started/install/install/)
 - 📖  [Complete Documentation](http://k8scleaner.projectsveltos.io/)
+- ⚡  [Performance Tuning](docs/PERFORMANCE_TUNING.md) - 性能调优指南和预设配置
 
 ## Observability and Telemetry
 
@@ -96,6 +97,23 @@ k8s-cleaner exposes Prometheus metrics through the controller-runtime metrics en
 - `k8s_cleaner_run_duration_seconds{cleaner_instance,action,status}`
 
 These metrics allow SRE/Platform teams to build RED/USE style dashboards (per Cleaner, per action, per resource type) and to feed external alerting systems.
+
+### Performance Tuning
+
+k8s-cleaner provides pre-configured Helm values for different cluster sizes:
+
+- **Small Cluster** (< 50 nodes): `values-small.yaml`
+- **Medium Cluster** (50-200 nodes): `values-medium.yaml`
+- **Large Cluster** (200-500 nodes): `values-large.yaml`
+- **Extra Large Cluster** (> 500 nodes): `values-xlarge.yaml`
+
+Use the performance tuning assistant to get recommendations:
+
+```bash
+make performance-tune
+```
+
+See [Performance Tuning Guide](docs/PERFORMANCE_TUNING.md) for detailed optimization strategies.
 
 ### Telemetry Controls
 

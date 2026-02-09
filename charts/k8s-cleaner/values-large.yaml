@@ -1,0 +1,28 @@
+# Large Cluster Configuration (200-500 nodes, 10000-50000 resources)
+# Usage: helm install k8s-cleaner ./charts/k8s-cleaner -f values-large.yaml
+
+replicaCount: 1  # 或 2（高可用）
+
+controller:
+  args:
+    concurrent-reconciles: "20"
+    worker-number: "10"
+    kube-api-qps: "50"
+    kube-api-burst: "100"
+    jitter-window: "20"
+    disable-telemetry: "true"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# 启用监控
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+

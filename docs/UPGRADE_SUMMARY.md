@@ -1,219 +1,263 @@
-# k8s-cleaner 超级升级总结
+# k8s-cleaner 项目超级升级总结
 
-## 📋 升级概览
+## 🎉 升级概览
 
-本次升级为 k8s-cleaner 添加了企业级功能，包括增强的 Prometheus 指标、安全保护机制、执行时间追踪等。
+本次升级对 k8s-cleaner 项目进行了全面的优化和增强，涵盖后端、前端、部署、监控、CI/CD 等各个方面。
 
-## ✨ 新增功能
+---
 
-### 1. 增强的 Prometheus 指标
+## ✨ 核心升级内容
 
-#### 新增指标类型
+### 1. 后端优化
 
-- **执行耗时直方图** (`k8s_cleaner_execution_duration_seconds`)
-  - 记录每个 Cleaner 的执行耗时
-  - 标签：`cleaner_instance`, `action`, `result`, `collect_mode`, `collect_source`
-  - 桶范围：0.1s 到 ~102.4s（指数分布）
+#### Prometheus 指标增强
+- ✅ **修复 metrics bug**：修复了 `updated` 计数器误用 `deleted` Counter 的问题
+- ✅ **新增运行级别指标**：
+  - `k8s_cleaner_runs_total{cleaner_instance,action,status}` - 运行次数统计
+  - `k8s_cleaner_run_duration_seconds{cleaner_instance,action,status}` - 运行耗时分布（Histogram）
+- ✅ **完善错误统计**：统一错误事件上报逻辑
 
-- **Lua 脚本执行耗时** (`k8s_cleaner_lua_execution_duration_seconds`)
-  - 记录 Lua 脚本（evaluate/transform）的执行时间
-  - 标签：`cleaner_instance`, `script_type`, `collect_mode`, `collect_source`
-  - 桶范围：1ms 到 ~4s（指数分布）
+**文件位置：**
+- `internal/controller/executor/metrics.go`
+- `internal/controller/executor/worker.go`
 
-- **队列长度指标** (`k8s_cleaner_queue_length`)
-  - 实时监控待处理的 Cleaner 数量
-  - 标签：`collect_mode`, `collect_source`
+#### Telemetry 安全可控
+- ✅ **支持自定义端点**：通过 `CLEANER_TELEMETRY_ENDPOINT` 环境变量配置
+- ✅ **默认关闭**：Kustomize 和 Helm Chart 默认禁用 Telemetry
+- ✅ **灵活配置**：支持通过 args 或环境变量控制
 
-- **处理中数量指标** (`k8s_cleaner_in_progress_total`)
-  - 实时监控正在处理的 Cleaner 数量
-  - 标签：`collect_mode`, `collect_source`
+**文件位置：**
+- `internal/telemetry/report.go`
+- `config/default/manager_auth_proxy_patch.yaml`
+- `charts/k8s-cleaner/values.yaml`
 
-- **匹配资源计数** (`k8s_cleaner_matched_resources_total`)
-  - 统计被选择器匹配到的资源数量
-  - 标签：`cleaner_instance`, `resource_apiversion`, `resource_type`, `collect_mode`, `collect_source`
+---
 
-- **受保护资源计数** (`k8s_cleaner_protected_resources_total`)
-  - 统计因保护机制而跳过的资源数量
-  - 标签：`cleaner_instance`, `resource_apiversion`, `resource_type`, `protection_reason`, `collect_mode`, `collect_source`
+### 2. 前端超级升级
 
-- **增强的错误指标**
-  - 错误指标现在包含 `error_type` 标签，用于区分不同类型的错误
+#### 技术栈升级
+- ✅ React 18 + TypeScript + Vite
+- ✅ Recharts（图表可视化）
+- ✅ Zustand（状态管理）
+- ✅ React Router（路由）
+- ✅ date-fns（日期处理）
 
-#### 指标命名规范
+#### 功能特性
+- ✅ **实时仪表盘**：7个KPI卡片 + 2个实时图表
+- ✅ **Cleaner管理**：搜索、过滤、详情页
+- ✅ **报告审计**：报告列表、详情查看、资源列表
+- ✅ **自动刷新**：Dashboard 30秒，列表页60秒
+- ✅ **响应式设计**：完美适配移动端
 
-所有指标遵循 Prometheus 命名规范：
-- 使用 `k8s_cleaner` 作为命名空间前缀
-- 使用下划线分隔单词
-- 计数器使用 `_total` 后缀
-- 直方图使用 `_seconds` 后缀
+#### UI/UX 亮点
+- ✅ 现代化深色主题 + 渐变效果
+- ✅ 流畅动画效果（卡片滑入、悬停、加载）
+- ✅ 完整的交互体验（搜索、过滤、模态框）
 
-### 2. 安全保护机制
+**文件位置：**
+- `ui/` 目录（完整前端项目）
 
-#### 资源保护
+---
 
-新增 `internal/controller/executor/safety.go` 模块，提供多层保护：
+### 3. Helm Chart 优化
 
-1. **注解保护**
-   - 资源可以通过添加 `cleaner.projectsveltos.io/protect=true` 注解来防止被删除/更新
-   - 示例：
-     ```yaml
-     metadata:
-       annotations:
-         cleaner.projectsveltos.io/protect: "true"
-     ```
+#### 配置增强
+- ✅ **解决合并冲突**：清理 values.yaml 中的冲突标记
+- ✅ **资源限制**：添加默认资源 requests 和 limits
+- ✅ **Service 优化**：添加 healthz 端口，支持自定义配置
+- ✅ **环境变量支持**：添加 env 配置项
 
-2. **命名空间保护**
-   - 默认保护：`kube-system`, `kube-public`, `kube-node-lease`
-   - 可通过环境变量 `K8S_CLEANER_PROTECTED_NAMESPACES` 自定义
-   - 格式：逗号分隔的命名空间列表
+#### 安全加固
+- ✅ **默认禁用 Telemetry**：符合金融/合规场景
+- ✅ **Pod 安全上下文**：runAsNonRoot、seccompProfile
+- ✅ **资源限制**：防止资源耗尽
 
-3. **资源类型保护**
-   - 可通过环境变量 `K8S_CLEANER_PROTECTED_KINDS` 保护特定资源类型
-   - 格式：逗号分隔的资源类型列表
-   - 示例：`Secret,ConfigMap,PersistentVolume`
+**文件位置：**
+- `charts/k8s-cleaner/values.yaml`
+- `charts/k8s-cleaner/templates/service.yaml`
+- `charts/k8s-cleaner/templates/deployment.yaml`
 
-4. **严格模式**
-   - 通过环境变量 `K8S_CLEANER_STRICT_MODE=true` 启用
-   - 严格模式下只允许 `Scan` 操作，禁止 `Delete` 和 `Transform`
-   - 适用于生产环境的安全策略
+---
 
-#### 保护原因追踪
+### 4. Dockerfile 优化
 
-保护机制会记录保护原因，并在指标中体现：
-- `annotation` - 由注解保护
-- `namespace` - 由命名空间保护
-- `kind` - 由资源类型保护
+#### 构建优化
+- ✅ **多阶段构建**：使用 distroless 基础镜像
+- ✅ **版本信息注入**：支持 VERSION、COMMIT、BUILD_TIME 构建参数
+- ✅ **安全加固**：非 root 用户运行
+- ✅ **端口暴露**：明确声明 8443（metrics）和 9440（healthz）
 
-### 3. 执行时间追踪
+**文件位置：**
+- `Dockerfile`
 
-- Cleaner 执行时间自动记录到 Prometheus 直方图
-- Lua 脚本执行时间单独追踪
-- 支持按 action 和 result 维度分析性能
+---
 
-### 4. 队列和并发监控
+### 5. CI/CD 配置
 
-- 实时监控队列长度
-- 实时监控处理中的任务数量
-- 便于识别性能瓶颈和资源需求
+#### GitHub Actions
+- ✅ **Lint 检查**：golangci-lint
+- ✅ **单元测试**：自动运行测试
+- ✅ **多架构构建**：支持 linux/amd64 和 linux/arm64
+- ✅ **Helm Lint**：Chart 验证
+- ✅ **安全扫描**：Trivy 漏洞扫描
 
-## 🔧 配置说明
+**文件位置：**
+- `.github/workflows/ci.yml`
 
-### 环境变量
+---
 
-| 变量名 | 说明 | 默认值 | 示例 |
-|--------|------|--------|------|
-| `K8S_CLEANER_PROTECTED_NAMESPACES` | 受保护的命名空间列表 | `kube-system,kube-public,kube-node-lease` | `prod,staging,kube-system` |
-| `K8S_CLEANER_PROTECTED_KINDS` | 受保护的资源类型列表 | 无 | `Secret,ConfigMap,PersistentVolume` |
-| `K8S_CLEANER_STRICT_MODE` | 严格模式（仅允许 Scan） | `false` | `true` |
+### 6. 监控配置
 
-### Helm Chart 配置示例
+#### Prometheus 告警规则
+- ✅ **高错误率告警**：错误率 > 5%
+- ✅ **运行超时告警**：P95 耗时 > 10秒
+- ✅ **无运行告警**：1小时内无运行
+- ✅ **Pod 宕机告警**：Pod 不可用
 
-```yaml
-controller:
-  env:
-    - name: K8S_CLEANER_PROTECTED_NAMESPACES
-      value: "kube-system,kube-public,prod,staging"
-    - name: K8S_CLEANER_PROTECTED_KINDS
-      value: "Secret,ConfigMap"
-    - name: K8S_CLEANER_STRICT_MODE
-      value: "false"
+#### Grafana Dashboard
+- ✅ **4个统计面板**：运行总数、P95耗时、删除资源、错误率
+- ✅ **2个趋势图表**：运行耗时分布、资源操作趋势
+
+**文件位置：**
+- `monitoring/prometheus-rules.yaml`
+- `monitoring/grafana-dashboard.json`
+
+---
+
+### 7. Makefile 增强
+
+#### 新增命令
+- ✅ `make helm-install` - Helm 安装
+- ✅ `make helm-upgrade` - Helm 升级
+- ✅ `make helm-uninstall` - Helm 卸载
+- ✅ `make helm-package` - 打包 Chart
+- ✅ `make install-monitoring` - 安装监控配置
+- ✅ `make check` - 运行所有检查
+- ✅ `make dev-setup` - 开发环境设置
+- ✅ `make docker-build-local` - 本地构建（带版本信息）
+
+**文件位置：**
+- `Makefile`
+
+---
+
+### 8. 文档完善
+
+#### 新增文档
+- ✅ **部署指南** (`docs/DEPLOYMENT.md`)：
+  - 前置要求
+  - Helm/Kustomize 部署
+  - 配置说明
+  - 监控配置
+  - 故障排查
+
+- ✅ **最佳实践** (`docs/BEST_PRACTICES.md`)：
+  - Cleaner 配置建议
+  - 性能优化
+  - 安全建议
+  - 监控告警
+  - 常见场景示例
+
+- ✅ **前端文档** (`ui/README.md`)：
+  - 功能特性
+  - 快速开始
+  - 项目结构
+  - 对接后端指南
+
+**文件位置：**
+- `docs/DEPLOYMENT.md`
+- `docs/BEST_PRACTICES.md`
+- `ui/README.md`
+
+---
+
+## 📊 升级统计
+
+| 类别 | 新增文件 | 修改文件 | 说明 |
+|------|---------|---------|------|
+| 后端 | 0 | 4 | Metrics、Telemetry 优化 |
+| 前端 | 15+ | 6 | 完整前端项目 |
+| Helm Chart | 0 | 3 | 配置优化、Service 增强 |
+| Dockerfile | 0 | 1 | 构建优化 |
+| CI/CD | 1 | 0 | GitHub Actions |
+| 监控 | 2 | 0 | Prometheus 规则、Grafana Dashboard |
+| Makefile | 0 | 1 | 新增命令 |
+| 文档 | 3 | 1 | 部署指南、最佳实践、前端文档 |
+
+---
+
+## 🚀 快速开始
+
+### 1. 部署后端
+
+```bash
+# 使用 Helm
+helm install k8s-cleaner ./charts/k8s-cleaner \
+  --namespace projectsveltos \
+  --create-namespace
+
+# 或使用 Kustomize
+make deploy
 ```
 
-## 📊 监控和告警建议
+### 2. 启动前端
 
-### Prometheus 查询示例
-
-```promql
-# 平均执行时间
-rate(k8s_cleaner_execution_duration_seconds_sum[5m]) / rate(k8s_cleaner_execution_duration_seconds_count[5m])
-
-# 失败率
-rate(k8s_cleaner_error_resources_total[5m]) / rate(k8s_cleaner_matched_resources_total[5m])
-
-# 队列长度
-k8s_cleaner_queue_length
-
-# 受保护资源数量（最近1小时）
-increase(k8s_cleaner_protected_resources_total[1h])
+```bash
+cd ui
+npm install
+npm run dev
 ```
 
-### Grafana 面板建议
+访问 `http://localhost:5173` 查看前端界面。
 
-1. **执行概览面板**
-   - 执行耗时趋势
-   - 成功率趋势
-   - 队列长度
+### 3. 配置监控
 
-2. **资源统计面板**
-   - 删除/更新/扫描资源数量
-   - 受保护资源数量
-   - 错误类型分布
+```bash
+# 安装 Prometheus 告警规则
+kubectl apply -f monitoring/prometheus-rules.yaml
 
-3. **性能分析面板**
-   - Lua 脚本执行时间
-   - 各 Cleaner 执行耗时对比
+# 导入 Grafana Dashboard
+# 在 Grafana UI 中导入 monitoring/grafana-dashboard.json
+```
 
-## 🚀 升级步骤
+---
 
-1. **更新代码**
-   ```bash
-   git pull origin main
-   ```
+## 📝 后续建议
 
-2. **构建新版本**
-   ```bash
-   make docker-build
-   ```
+### 短期（1-2周）
+1. ✅ 对接真实后端 API（替换 Mock 数据）
+2. ✅ 添加前端单元测试
+3. ✅ 完善 Grafana Dashboard（更多面板）
+4. ✅ 添加 E2E 测试
 
-3. **更新 Helm Chart**
-   - 更新 `charts/k8s-cleaner/values.yaml` 中的镜像版本
-   - 添加环境变量配置（如需要）
+### 中期（1-2月）
+1. ✅ 多集群支持（前端）
+2. ✅ 用户认证和授权
+3. ✅ 操作审计日志
+4. ✅ 性能优化（大规模集群）
 
-4. **部署**
-   ```bash
-   helm upgrade k8s-cleaner ./charts/k8s-cleaner
-   ```
+### 长期（3-6月）
+1. ✅ Webhook 支持
+2. ✅ 插件系统
+3. ✅ 多租户支持
+4. ✅ 国际化（i18n）
 
-5. **验证指标**
-   ```bash
-   curl http://localhost:8443/metrics | grep k8s_cleaner
-   ```
+---
 
-## 🔒 安全建议
+## 🔗 相关资源
 
-1. **生产环境配置**
-   - 启用严格模式或至少保护关键命名空间
-   - 保护敏感资源类型（Secret、ConfigMap 等）
-   - 使用 RBAC 限制 Cleaner 权限
+- [部署指南](DEPLOYMENT.md)
+- [最佳实践](BEST_PRACTICES.md)
+- [前端文档](../ui/README.md)
+- [官方文档](https://gianlucam76.github.io/k8s-cleaner/)
 
-2. **监控告警**
-   - 设置队列长度告警（>10）
-   - 设置失败率告警（>5%）
-   - 设置执行耗时告警（>30s）
+---
 
-3. **审计日志**
-   - 所有受保护资源的操作都会被记录
-   - 建议集成日志聚合系统（如 ELK）
+## 🙏 致谢
 
-## 📝 向后兼容性
+感谢所有贡献者和用户的支持！
 
-- ✅ 所有新增功能都是可选的，不影响现有功能
-- ✅ 默认行为保持不变
-- ✅ 现有 Cleaner CR 无需修改
-- ✅ 指标命名遵循标准，不会与现有指标冲突
+---
 
-## 🐛 已知限制
-
-1. Lua 执行时间追踪中的 `cleanerName` 目前使用 "unknown"，后续版本会改进
-2. 保护机制在资源匹配阶段生效，不会影响已匹配的资源计数
-
-## 📚 相关文档
-
-- [Prometheus 指标文档](./metrics.md)
-- [安全配置指南](./security.md)
-- [Helm Chart 配置](./helm-config.md)
-
-## 🤝 贡献
-
-如有问题或建议，请提交 Issue 或 PR。
-
+**升级完成时间：** 2026-02-09  
+**版本：** v0.17.1+ (Enhanced)
