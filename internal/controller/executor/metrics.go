@@ -18,6 +18,7 @@ package executor
 
 import (
 	"os"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -32,11 +33,17 @@ const (
 	updatedCounterName = "k8s_cleaner_updated_resources_total"
 	updatedCounterHelp = "The cumulative count of resources successfully updated by cleaner."
 
+	runCounterName = "k8s_cleaner_runs_total"
+	runCounterHelp = "The cumulative count of cleaner runs."
+
 	scanCounterName = "k8s_cleaner_scan_resources_total"
 	scanCounterHelp = "The cumulative count of resources successfully found by cleaner during a scan."
 
 	errorCounterName = "k8s_cleaner_error_resources_total"
 	errorCounterHelp = "The cumulative count of erros encountered by cleaner during a scan."
+
+	runDurationHistogramName = "k8s_cleaner_run_duration_seconds"
+	runDurationHistogramHelp = "Duration of cleaner runs in seconds."
 )
 
 var (
@@ -75,13 +82,40 @@ var (
 		},
 		[]string{"cleaner_instance", "resource_apiversion", "resource_type"},
 	)
+
+	runCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: os.Getenv("NAMESPACE"),
+			Name:      runCounterName,
+			Help:      runCounterHelp,
+		},
+		[]string{"cleaner_instance", "action", "status"},
+	)
+
+	runDurationHistogram = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: os.Getenv("NAMESPACE"),
+			Name:      runDurationHistogramName,
+			Help:      runDurationHistogramHelp,
+			// Use default Prometheus buckets; can be tuned via relabeling/recording rules.
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"cleaner_instance", "action", "status"},
+	)
 )
 
 //nolint:gochecknoinits // forced pattern for prometheus and controller-runtime
 func init() {
 	// Register custom metrics with the controller-runtime's global registry.
 	// This ensures it is exported alongside default controller-runtime metrics.
-	metrics.Registry.MustRegister(deletedResourceCounter, updatedResourceCounter, scanResourceCounter, errorResourceCounter)
+	metrics.Registry.MustRegister(
+		deletedResourceCounter,
+		updatedResourceCounter,
+		scanResourceCounter,
+		errorResourceCounter,
+		runCounter,
+		runDurationHistogram,
+	)
 }
 
 // getDeletedResourcesCounterVec returns the singleton CounterVec instance.
@@ -90,23 +124,17 @@ func getDeletedResourcesCounterVec() *prometheus.CounterVec {
 }
 
 func reportDeletionEvent(cleanerName, resourceAPIVersion, resourceKind string) {
-	// Get the global CounterVec instance.
 	counterVec := getDeletedResourcesCounterVec()
-
-	// Increment the counter for the specific cleaner instance and resource kind.
 	counterVec.WithLabelValues(cleanerName, resourceAPIVersion, resourceKind).Inc()
 }
 
 // getUpdatedResourcesCounterVec returns the singleton CounterVec instance.
 func getUpdatedResourcesCounterVec() *prometheus.CounterVec {
-	return deletedResourceCounter
+	return updatedResourceCounter
 }
 
 func reportUpdateEvent(cleanerName, resourceAPIVersion, resourceKind string) {
-	// Get the global CounterVec instance.
 	counterVec := getUpdatedResourcesCounterVec()
-
-	// Increment the counter for the specific cleaner instance and resource kind.
 	counterVec.WithLabelValues(cleanerName, resourceAPIVersion, resourceKind).Inc()
 }
 
@@ -134,4 +162,10 @@ func reportErrorEvent(cleanerName, resourceAPIVersion, resourceKind string) {
 
 	// Increment the counter for the specific cleaner instance and resource kind.
 	counterVec.WithLabelValues(cleanerName, resourceAPIVersion, resourceKind).Inc()
+}
+
+// reportRun records a single run of a Cleaner instance, including outcome and duration.
+func reportRun(cleanerName, action, status string, duration time.Duration) {
+	runCounter.WithLabelValues(cleanerName, action, status).Inc()
+	runDurationHistogram.WithLabelValues(cleanerName, action, status).Observe(duration.Seconds())
 }

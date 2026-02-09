@@ -123,6 +123,10 @@ func processRequests(ctx context.Context, i int, logger logr.Logger) {
 		select {
 		case <-time.After(1 * time.Second):
 			managerInstance.mu.Lock()
+			// Update metrics for queue length and in-progress count
+			updateQueueLength(len(managerInstance.jobQueue))
+			updateInProgress(len(managerInstance.inProgress))
+
 			if len(managerInstance.jobQueue) > 0 {
 				// take a request from queue and remove it from queue
 				cleanerName = &managerInstance.jobQueue[0]
@@ -133,6 +137,9 @@ func processRequests(ctx context.Context, i int, logger logr.Logger) {
 				l.V(logs.LogDebug).Info("add to inProgress")
 				key := *cleanerName
 				managerInstance.inProgress = append(managerInstance.inProgress, key)
+				// Update metrics after state change
+				updateQueueLength(len(managerInstance.jobQueue))
+				updateInProgress(len(managerInstance.inProgress))
 				// If present remove from dirty
 				for i := range managerInstance.dirty {
 					if managerInstance.dirty[i] == key {
@@ -150,10 +157,35 @@ func processRequests(ctx context.Context, i int, logger logr.Logger) {
 	}
 }
 
+<<<<<<< Current (Your changes)
 func processCleanerInstance(ctx context.Context, cleanerName string, logger logr.Logger) error {
+	startTime := time.Now()
+	action := "unknown"
+	result := "success"
+
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		reportExecutionDuration(cleanerName, action, result, duration)
+=======
+func processCleanerInstance(ctx context.Context, cleanerName string, logger logr.Logger) (err error) {
+	start := time.Now()
+	var action appsv1alpha1.Action
+
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		// action will be the zero value if we failed before fetching the Cleaner.
+		reportRun(cleanerName, string(action), status, time.Since(start))
+>>>>>>> Incoming (Background Agent changes)
+	}()
+
 	cleaner, err := getCleanerInstance(ctx, cleanerName)
 	if err != nil {
 		logger.Info(fmt.Sprintf("failed to get cleaner instance: %v", err))
+		result = "error"
+		reportErrorEventWithType(cleanerName, "", "", "get_cleaner_failed")
 		return err
 	}
 	if cleaner == nil {
@@ -161,15 +193,24 @@ func processCleanerInstance(ctx context.Context, cleanerName string, logger logr
 		return nil
 	}
 
+	action = string(cleaner.Spec.Action)
+
 	resources := make([]ResourceResult, 0)
 	for i := range cleaner.Spec.ResourcePolicySet.ResourceSelectors {
 		selector := &cleaner.Spec.ResourcePolicySet.ResourceSelectors[i]
+		action = cleaner.Spec.Action
 		var tmpResources []ResourceResult
 		tmpResources, err = getMatchingResources(ctx, selector, logger)
 		if err != nil {
 			logger.Info(fmt.Sprintf("failed to fetch resource (gvk: %s): %v",
 				fmt.Sprintf("%s:%s:%s", selector.Group, selector.Version, selector.Kind), err))
+			result = "error"
+			reportErrorEventWithType(cleanerName, selector.Group+"/"+selector.Version, selector.Kind, "fetch_failed")
 			return err
+		}
+		// Report matched resources
+		for _, res := range tmpResources {
+			reportMatchedResource(cleanerName, res.Resource.GetAPIVersion(), res.Resource.GetKind())
 		}
 		resources = append(resources, tmpResources...)
 	}
@@ -179,33 +220,67 @@ func processCleanerInstance(ctx context.Context, cleanerName string, logger logr
 			logger)
 		if err != nil {
 			logger.Info(fmt.Sprintf("failed to filter aggregated resources: %v", err))
+			result = "error"
+			reportErrorEventWithType(cleanerName, "", "", "aggregated_selection_failed")
 			return err
 		}
+	}
+
+	// Validate cleaner action (strict mode check)
+	if err := ValidateCleanerAction(cleaner, logger); err != nil {
+		logger.Error(err, "cleaner action validation failed")
+		result = "error"
+		reportErrorEventWithType(cleanerName, "", "", "validation_failed")
+		return err
+	}
+
+	// Filter out protected resources
+	filteredResources := make([]ResourceResult, 0)
+	for _, res := range resources {
+		if protected, reason := IsResourceProtected(res.Resource, cleanerName, logger); protected {
+			logger.V(logs.LogInfo).Info("skipping protected resource",
+				"resource", fmt.Sprintf("%s/%s/%s", res.Resource.GetKind(), res.Resource.GetNamespace(), res.Resource.GetName()),
+				"reason", reason)
+			continue
+		}
+		filteredResources = append(filteredResources, res)
 	}
 
 	var processedResources []ResourceResult
 	switch cleaner.Spec.Action {
 	case appsv1alpha1.ActionDelete:
-		processedResources, err = deleteMatchingResources(ctx, cleanerName, resources,
+		processedResources, err = deleteMatchingResources(ctx, cleanerName, filteredResources,
 			cleaner.Spec.DeleteOptions, logger)
 	case appsv1alpha1.ActionTransform:
-		processedResources, err = updateMatchingResources(ctx, cleanerName, resources,
+		processedResources, err = updateMatchingResources(ctx, cleanerName, filteredResources,
 			cleaner.Spec.Transform, logger)
 	case appsv1alpha1.ActionScan:
-		printMatchingResources(cleanerName, resources, logger)
-		processedResources = resources
+		printMatchingResources(cleanerName, filteredResources, logger)
+		processedResources = filteredResources
+	}
+
+	if err != nil {
+		result = "error"
 	}
 
 	// Send notification irrespective of err
 	sendErr := sendNotifications(ctx, processedResources, cleaner, logger)
 	if sendErr != nil {
-		return sendErr
+		if result == "success" {
+			result = "partial"
+		}
+		reportErrorEventWithType(cleanerName, "", "", "notification_failed")
+		// Don't return here, continue to store resources
 	}
 
 	// Store resources before any action was taken irrespective of err
 	storeErr := storeResources(processedResources, scheme, cleaner, logger)
 	if storeErr != nil {
-		return storeErr
+		if result == "success" {
+			result = "partial"
+		}
+		reportErrorEventWithType(cleanerName, "", "", "store_failed")
+		// Don't return here, return the original error if any
 	}
 
 	return err
@@ -509,6 +584,14 @@ func isMatch(resource *unstructured.Unstructured, script string, logger logr.Log
 		return true, "", nil
 	}
 
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		// Extract cleaner name from context if available, otherwise use "unknown"
+		cleanerName := "unknown"
+		reportLuaExecutionDuration(cleanerName, "evaluate", duration)
+	}()
+
 	l := lua.NewState()
 	defer l.Close()
 
@@ -567,6 +650,13 @@ func transform(resource *unstructured.Unstructured, script string, logger logr.L
 	if script == "" {
 		return resource, nil
 	}
+
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime).Seconds()
+		cleanerName := "unknown"
+		reportLuaExecutionDuration(cleanerName, "transform", duration)
+	}()
 
 	l := lua.NewState()
 	defer l.Close()
@@ -714,6 +804,8 @@ func storeResult(cleanerName string, err error, logger logr.Logger) {
 		}
 		logger.V(logs.LogDebug).Info("remove from inProgress")
 		managerInstance.inProgress = removeFromSlice(managerInstance.inProgress, i)
+		// Update metrics after state change
+		updateInProgress(len(managerInstance.inProgress))
 		break
 	}
 

@@ -23,6 +23,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/robfig/cron/v3"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,6 +43,17 @@ import (
 	"github.com/go-logr/logr"
 )
 
+var (
+	cleanerReconcileTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "k8s_cleaner",
+			Name:      "reconcile_total",
+			Help:      "Total number of Cleaner reconciliations processed by k8s-cleaner",
+		},
+		[]string{"result", "collect_mode", "collect_source"},
+	)
+)
+
 // CleanerReconciler reconciles a Cleaner object
 type CleanerReconciler struct {
 	client.Client
@@ -57,6 +70,23 @@ type CleanerReconciler struct {
 func (r *CleanerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, reterr error) {
 	logger := ctrl.LoggerFrom(ctx)
 	logger.Info("Reconciling")
+
+	metricsBaseLabels := prometheus.Labels{
+		"collect_mode":   "native",
+		"collect_source": "k8s_cleaner_controller",
+	}
+	defer func() {
+		result := "success"
+		if reterr != nil {
+			result = "error"
+		}
+		labels := prometheus.Labels{
+			"result":         result,
+			"collect_mode":   metricsBaseLabels["collect_mode"],
+			"collect_source": metricsBaseLabels["collect_source"],
+		}
+		cleanerReconcileTotal.With(labels).Inc()
+	}()
 
 	// Fecth the Cleaner instance
 	cleaner := &appsv1alpha1.Cleaner{}
