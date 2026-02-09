@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -79,6 +80,24 @@ func main() {
 	pflag.CommandLine.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
+
+	// Enterprise-friendly overrides via environment variables.
+	// K8S_CLEANER_DISABLE_TELEMETRY can be set to "true"/"1" to enforce telemetry disablement
+	// regardless of CLI flags. This is useful in regulated environments where outbound
+	// telemetry must be centrally controlled.
+	if v, ok := os.LookupEnv("K8S_CLEANER_DISABLE_TELEMETRY"); ok {
+		if strings.EqualFold(v, "true") || v == "1" {
+			disableTelemetry = true
+		}
+	}
+
+	// Allow setting the running version via environment variable when the binary
+	// is not started with --version flag (for example from container image tags).
+	if version == "" {
+		if v, ok := os.LookupEnv("K8S_CLEANER_VERSION"); ok {
+			version = v
+		}
+	}
 
 	loggerCfg := createLogger()
 	zapLogger, err := loggerCfg.Build()
@@ -149,8 +168,12 @@ func main() {
 func initFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&version, "version", "", "current k8s-cleaner version")
 
-	fs.BoolVar(&disableTelemetry, "disable-telemetry", false,
-		"When set, disable telemetry reporting")
+	// For 金融/合规场景，提供环境变量强制关闭遥测：
+	// 当 K8S_CLEANER_FORCE_DISABLE_TELEMETRY=true 时，无论命令行如何配置，都不会上报 telemetry。
+	forceDisableTelemetry := os.Getenv("K8S_CLEANER_FORCE_DISABLE_TELEMETRY") == "true"
+
+	fs.BoolVar(&disableTelemetry, "disable-telemetry", forceDisableTelemetry,
+		"When set, disable telemetry reporting. When environment variable K8S_CLEANER_FORCE_DISABLE_TELEMETRY=true telemetry is always disabled.")
 
 	fs.StringVar(&diagnosticsAddress, "diagnostics-address", ":8443",
 		"The address the diagnostics endpoint binds to. Per default metrics are served via https and with"+

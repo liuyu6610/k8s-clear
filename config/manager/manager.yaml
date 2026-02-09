@@ -61,6 +61,8 @@ spec:
       - command:
         - /manager
         env:
+        - name: K8S_CLEANER_DISABLE_TELEMETRY
+          value: "true"
         - name: GOMEMLIMIT
           valueFrom:
             resourceFieldRef:

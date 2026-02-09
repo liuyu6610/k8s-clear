@@ -1,0 +1,57 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: k8s-cleaner-alerts
+  labels:
+    app: k8s-cleaner
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: k8s-cleaner.rules
+      interval: 30s
+      rules:
+        - alert: CleanerHighErrorRate
+          expr: |
+            sum(rate(k8s_cleaner_error_resources_total[5m])) 
+            / 
+            sum(rate(k8s_cleaner_runs_total[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "k8s-cleaner has high error rate"
+            description: "Cleaner error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+        - alert: CleanerRunDurationHigh
+          expr: |
+            histogram_quantile(0.95, 
+              sum(rate(k8s_cleaner_run_duration_seconds_bucket[5m])) by (le, cleaner_instance)
+            ) > 10
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "k8s-cleaner run duration is high"
+            description: "Cleaner {{ $labels.cleaner_instance }} P95 duration is {{ $value }}s (threshold: 10s)"
+
+        - alert: CleanerNoRuns
+          expr: |
+            sum(increase(k8s_cleaner_runs_total[1h])) == 0
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "k8s-cleaner has no runs in the last hour"
+            description: "No cleaner runs detected in the last hour. Check if cleaners are scheduled correctly."
+
+        - alert: CleanerPodDown
+          expr: |
+            up{job="k8s-cleaner"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "k8s-cleaner pod is down"
+            description: "k8s-cleaner pod has been down for more than 5 minutes"
+

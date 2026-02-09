@@ -13,4 +13,5 @@ spec:
         args:
         - "--diagnostics-address=:8443"
         - "--version=main"
+        - "--disable-telemetry"
 

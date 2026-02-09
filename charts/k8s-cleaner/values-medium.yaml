@@ -1,0 +1,21 @@
+# Medium Cluster Configuration (50-200 nodes, 1000-10000 resources)
+# Usage: helm install k8s-cleaner ./charts/k8s-cleaner -f values-medium.yaml
+
+replicaCount: 1
+
+controller:
+  args:
+    concurrent-reconciles: "10"
+    worker-number: "5"
+    kube-api-qps: "40"
+    kube-api-burst: "60"
+    jitter-window: "15"
+    disable-telemetry: "true"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+

@@ -1,0 +1,41 @@
+# Extra Large Cluster Configuration (> 500 nodes, > 50000 resources)
+# Usage: helm install k8s-cleaner ./charts/k8s-cleaner -f values-xlarge.yaml
+
+replicaCount: 2  # 高可用
+
+controller:
+  args:
+    concurrent-reconciles: "50"
+    worker-number: "20"
+    kube-api-qps: "80"
+    kube-api-burst: "150"
+    jitter-window: "30"
+    disable-telemetry: "true"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+# 启用监控
+serviceMonitor:
+  enabled: true
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+
+# Pod 分散部署
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: k8s-cleaner
+
+# 节点选择
+nodeSelector:
+  kubernetes.io/os: linux
+

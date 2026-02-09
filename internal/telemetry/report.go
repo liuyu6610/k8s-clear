@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -55,7 +56,10 @@ var (
 
 const (
 	contentTypeJSON = "application/json"
-	domain          = "http://cleaner-telemetry.projectsveltos.io/"
+	// defaultDomain is the public Sveltos telemetry endpoint. It can be overridden
+	// via the CLEANER_TELEMETRY_ENDPOINT environment variable, or effectively
+	// disabled by leaving the endpoint empty and using --disable-telemetry.
+	defaultDomain = "http://cleaner-telemetry.projectsveltos.io/"
 )
 
 func StartCollecting(ctx context.Context, c client.Client, sveltosVersion string) error {
@@ -150,12 +154,21 @@ func (m *instance) collectData(ctx context.Context, uuid string) (*Cluster, erro
 func (m *instance) sendData(ctx context.Context, payload *Cluster) {
 	logger := log.FromContext(ctx)
 
+	endpoint := os.Getenv("CLEANER_TELEMETRY_ENDPOINT")
+	if endpoint == "" {
+		endpoint = defaultDomain
+	}
+	if endpoint == "" {
+		logger.V(logs.LogInfo).Info("telemetry endpoint is empty, skipping telemetry send")
+		return
+	}
+
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, domain, bytes.NewBuffer(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, bytes.NewBuffer(data))
 	if err != nil {
 		return
 	}
@@ -167,7 +180,7 @@ func (m *instance) sendData(ctx context.Context, payload *Cluster) {
 	c := &http.Client{
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Follow redirect and set body
-			newReq, err := http.NewRequestWithContext(ctx, http.MethodGet, domain, bytes.NewBuffer(data))
+			newReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, bytes.NewBuffer(data))
 			req.Body = newReq.Body
 			return err
 		},

@@ -81,6 +81,53 @@ By combining the **flexibility** of **scheduling**, the **accuracy** of **label 
 
 - ✅  [Install](https://gianlucam76.github.io/k8s-cleaner/getting_started/install/install/)
 - 📖  [Complete Documentation](http://k8scleaner.projectsveltos.io/)
+- ⚡  [Performance Tuning](docs/PERFORMANCE_TUNING.md) - 性能调优指南和预设配置
+
+## Observability and Telemetry
+
+### Prometheus Metrics
+
+k8s-cleaner exposes Prometheus metrics through the controller-runtime metrics endpoint. Key metrics include:
+
+- `k8s_cleaner_deleted_resources_total{cleaner_instance,resource_apiversion,resource_type}`
+- `k8s_cleaner_updated_resources_total{cleaner_instance,resource_apiversion,resource_type}`
+- `k8s_cleaner_scan_resources_total{cleaner_instance,resource_apiversion,resource_type}`
+- `k8s_cleaner_error_resources_total{cleaner_instance,resource_apiversion,resource_type}`
+- `k8s_cleaner_runs_total{cleaner_instance,action,status}`
+- `k8s_cleaner_run_duration_seconds{cleaner_instance,action,status}`
+
+These metrics allow SRE/Platform teams to build RED/USE style dashboards (per Cleaner, per action, per resource type) and to feed external alerting systems.
+
+### Performance Tuning
+
+k8s-cleaner provides pre-configured Helm values for different cluster sizes:
+
+- **Small Cluster** (< 50 nodes): `values-small.yaml`
+- **Medium Cluster** (50-200 nodes): `values-medium.yaml`
+- **Large Cluster** (200-500 nodes): `values-large.yaml`
+- **Extra Large Cluster** (> 500 nodes): `values-xlarge.yaml`
+
+Use the performance tuning assistant to get recommendations:
+
+```bash
+make performance-tune
+```
+
+See [Performance Tuning Guide](docs/PERFORMANCE_TUNING.md) for detailed optimization strategies.
+
+### Telemetry Controls
+
+k8s-cleaner can optionally send minimal, aggregated telemetry (cluster UUID, number of nodes, number of Cleaner instances) to the Sveltos telemetry endpoint.
+
+- Binary flag:
+  - `--disable-telemetry` (default enabled in the binary, but disabled by default in the provided Kustomize/Helm deployment manifests).
+- Environment variable:
+  - `CLEANER_TELEMETRY_ENDPOINT` — overrides the default public telemetry endpoint; if left empty and `--disable-telemetry` is set, no telemetry is sent.
+
+In the provided Kustomize configuration and Helm chart, telemetry is disabled by default:
+
+- The default deployment passes `--disable-telemetry` to the controller.
+- The Helm chart sets `controller.args.disable-telemetry: "true"`. You can explicitly enable telemetry by overriding this value and, optionally, pointing `CLEANER_TELEMETRY_ENDPOINT` to a private, internal endpoint.
 
 ## Install on Multiple Clusters with Sveltos
 
