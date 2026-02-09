@@ -29,8 +29,16 @@ controller:
     tag: "v0.17.1"
     # -- Controller Image pull policy
     pullPolicy: IfNotPresent
-  # -- Controller ARguments
-  args: {}
+  # -- Controller Arguments
+  # By default, disable telemetry to avoid sending cluster metadata to the public
+  # projectsveltos telemetry endpoint. You can override or remove this flag if
+  # you explicitly want to enable telemetry.
+  args:
+    disable-telemetry: "true"
+  # -- Additional environment variables for the controller Pod
+  env: []
+  # - name: CLEANER_TELEMETRY_ENDPOINT
+  #   value: "https://your-telemetry-endpoint.com"
   ports:
   - containerPort: 8443
     name: metrics
@@ -65,13 +73,14 @@ controller:
     initialDelaySeconds: 5
     periodSeconds: 10
   # -- Resource limits and requests for the controller
-  resources: {}
-    # requests:
-    #   cpu: 50m
-    #   memory: 100Mi
-    # limits:
-    #   memory: 100Mi
-# -- Controller VolumeMounts
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  # -- Controller VolumeMounts
   volumeMounts: []
   # - name: foo
   #   mountPath: "/etc/foo"
@@ -126,6 +135,19 @@ serviceAccount:
   # -- The name of the service account to use.
   # If not set and create is true, a name is generated using the fullname template
   name: ""
+
+# Service configuration
+service:
+  # -- Service type
+  type: ClusterIP
+  # -- Metrics port
+  metricsPort: 8443
+  # -- Healthz port
+  healthzPort: 9440
+  # -- Service annotations
+  annotations: {}
+  # -- Session affinity (ClientIP, None)
+  sessionAffinity: None
 
 # ServiceMonitor
 serviceMonitor:
